@@ -1771,6 +1771,14 @@ class Perl6::Actions is HLL::Actions {
 
         $block := $<blockoid>.ast;
         $block.blocktype('declaration');
+        if is_clearly_returnless($block) {
+            $block[1] := PAST::Op.new(
+                :pirop('perl6_decontainerize_return_value PP'),
+                $block[1]);
+        }
+        else {
+            $block[1] := wrap_return_handler($block[1]);
+        }
 
         # Obtain parameters, create signature object and generate code to
         # call binder.
