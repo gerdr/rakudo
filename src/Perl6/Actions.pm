@@ -1798,7 +1798,7 @@ class Perl6::Actions is HLL::Actions {
             $block.name(~$<deflongname>[0].ast);
             $block.nsentry('');
         }
-        my $code := $*ST.create_code_object($block, 'Macro', $signature,
+        my $code := $*W.create_code_object($block, 'Macro', $signature,
             $*MULTINESS eq 'proto');
 
         # Document it
@@ -1806,11 +1806,11 @@ class Perl6::Actions is HLL::Actions {
 
         # Install PAST block so that it gets capture_lex'd correctly and also
         # install it in the lexpad.
-        my $outer := $*ST.cur_lexpad();
+        my $outer := $*W.cur_lexpad();
         $outer[0].push(PAST::Stmt.new($block));
 
         # Install &?ROUTINE.
-        $*ST.install_lexical_symbol($block, '&?ROUTINE', $code);
+        $*W.install_lexical_symbol($block, '&?ROUTINE', $code);
 
         my $past;
         if $<deflongname> {
@@ -1821,16 +1821,16 @@ class Perl6::Actions is HLL::Actions {
                     ~$<deflongname>[0].ast ~ "'");
             }
             if $*SCOPE eq '' || $*SCOPE eq 'my' {
-                $*ST.install_lexical_symbol($outer, $name, $code);
+                $*W.install_lexical_symbol($outer, $name, $code);
             }
             elsif $*SCOPE eq 'our' {
                 # Install in lexpad and in package, and set up code to
                 # re-bind it per invocation of its outer.
-                $*ST.install_lexical_symbol($outer, $name, $code);
-                $*ST.install_package_symbol($*PACKAGE, $name, $code);
+                $*W.install_lexical_symbol($outer, $name, $code);
+                $*W.install_package_symbol($*PACKAGE, $name, $code);
                 $outer[0].push(PAST::Op.new(
                     :pasttype('bind_6model'),
-                    $*ST.symbol_lookup([$name], $/, :package_only(1)),
+                    $*W.symbol_lookup([$name], $/, :package_only(1)),
                     PAST::Var.new( :name($name), :scope('lexical_6model') )
                 ));
             }
@@ -2882,13 +2882,13 @@ class Perl6::Actions is HLL::Actions {
         my $is_macro := 0;
         my $routine;
         try {
-            $routine := $*ST.find_symbol(['&' ~ ~$<identifier>]);
-            if nqp::istype($routine, $*ST.find_symbol(['Macro'])) {
+            $routine := $*W.find_symbol(['&' ~ ~$<identifier>]);
+            if nqp::istype($routine, $*W.find_symbol(['Macro'])) {
                 $is_macro := 1;
             }
         }
         if $is_macro {
-            my $ast_class := $*ST.find_symbol(['AST']);
+            my $ast_class := $*W.find_symbol(['AST']);
             my @argument_quasi_asts := [];
             if $<args><semiarglist> {
                 for $<args><semiarglist><arglist> {
@@ -2977,13 +2977,13 @@ class Perl6::Actions is HLL::Actions {
             my $is_macro := 0;
             my $routine;
             try {
-                $routine := $*ST.find_symbol(@name);
-                if nqp::istype($routine, $*ST.find_symbol(['Macro'])) {
+                $routine := $*W.find_symbol(@name);
+                if nqp::istype($routine, $*W.find_symbol(['Macro'])) {
                     $is_macro := 1;
                 }
             }
             if $is_macro {
-                my $ast_class := $*ST.find_symbol(['AST']);
+                my $ast_class := $*W.find_symbol(['AST']);
                 my @argument_quasi_asts := [];
                 if $<args><semiarglist> {
                     for $<args><semiarglist><arglist> {
@@ -3340,13 +3340,13 @@ class Perl6::Actions is HLL::Actions {
             my $routine;
             my $is_macro := 0;
             try {
-                $routine := $*ST.find_symbol(['&' ~ $name]);
-                if nqp::istype($routine, $*ST.find_symbol(['Macro'])) {
+                $routine := $*W.find_symbol(['&' ~ $name]);
+                if nqp::istype($routine, $*W.find_symbol(['Macro'])) {
                     $is_macro := 1;
                 }
             }
             if $is_macro {
-                my $ast_class := $*ST.find_symbol(['AST']);
+                my $ast_class := $*W.find_symbol(['AST']);
                 my @argument_quasi_asts := [];
                 for @($/) {
                     add_macro_arguments($_.ast, $ast_class, @argument_quasi_asts);
@@ -4082,11 +4082,11 @@ class Perl6::Actions is HLL::Actions {
     }
 
     method quote:sym<quasi>($/) {
-        my $ast_class := $*ST.find_symbol(['AST']);
+        my $ast_class := $*W.find_symbol(['AST']);
         my $quasi_ast := $ast_class.new();
         nqp::bindattr($quasi_ast, $ast_class, '$!past', $<block>.ast<past_block>[1]);
-        $*ST.add_object($quasi_ast);
-        make $*ST.get_slot_past_for_object($quasi_ast);
+        $*W.add_object($quasi_ast);
+        make $*W.get_slot_past_for_object($quasi_ast);
     }
 
     method quote_escape:sym<$>($/) {
