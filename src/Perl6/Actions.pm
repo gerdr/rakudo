@@ -620,7 +620,15 @@ class Perl6::Actions is HLL::Actions {
     method block($/) {
         my $block := $<blockoid>.ast;
         if $block<placeholder_sig> {
-            $/.CURSOR.panic("Cannot use placeholder parameters in this kind of block");
+            my $name := $block<placeholder_sig>[0]<variable_name>;
+            unless $name eq '%_' || $name eq '@_' {
+                $name := nqp::concat_s(nqp::substr($name, 0, 1),
+                        nqp::concat_s('^', nqp::substr($name, 1)));
+            }
+
+            $*W.throw( $/, ['X', 'Placeholder', 'Block'],
+                placeholder => p6box_s($name),
+            );
         }
         ($*W.cur_lexpad())[0].push(my $uninst := PAST::Stmts.new($block));
         my $code := $*W.create_code_object($block, 'Block', $*W.create_signature([]));
@@ -845,7 +853,7 @@ class Perl6::Actions is HLL::Actions {
 
     method statement_control:sym<CATCH>($/) {
         if has_block_handler($*W.cur_lexpad(), 'CONTROL', :except(1)) {
-            $/.CURSOR.panic("only one CATCH block allowed");
+            $*W.throw($/, ['X', 'Phaser', 'Once'], block => p6box_s('CATCH'));
         }
         my $block := $<block>.ast;
         push_block_handler($/, $*W.cur_lexpad(), $block, 'CONTROL', :except(1));
@@ -854,7 +862,7 @@ class Perl6::Actions is HLL::Actions {
 
     method statement_control:sym<CONTROL>($/) {
         if has_block_handler($*W.cur_lexpad(), 'CONTROL') {
-            $/.CURSOR.panic("only one CONTROL block allowed");
+            $*W.throw($/, ['X', 'Phaser', 'Once'], block => p6box_s('CONTROL'));
         }
         my $block := $<block>.ast;
         push_block_handler($/, $*W.cur_lexpad(), $block, 'CONTROL');
@@ -1197,6 +1205,17 @@ class Perl6::Actions is HLL::Actions {
         }
         $block.blocktype('immediate');
 
+        if $*PKGDECL ne 'role' && $block<placeholder_sig> {
+            my $name := $block<placeholder_sig>[0]<variable_name>;
+            unless $name eq '%_' || $name eq '@_' {
+                $name := nqp::concat_s(nqp::substr($name, 0, 1),
+                        nqp::concat_s('^', nqp::substr($name, 1)));
+            }
+            $*W.throw( $/, ['X', 'Placeholder', 'Block'],
+                placeholder => p6box_s($name),
+            );
+        }
+
         # If it's a stub, add it to the "must compose at some point" list,
         # then just evaluate to the type object. Don't need to do any more
         # just yet.
@@ -1320,7 +1339,7 @@ class Perl6::Actions is HLL::Actions {
         my $twigil := $<variable><twigil>[0];
         my $name   := ~$sigil ~ ~$twigil ~ ~$<variable><desigilname>;
         if $<variable><desigilname> && $*W.cur_lexpad().symbol($name) {
-            $/.CURSOR.panic("Redeclaration of symbol ", $name);
+            $*W.throw($/, ['X', 'Redeclaration'], symbol => p6box_s($name));
         }
         make declare_variable($/, $past, ~$sigil, ~$twigil, ~$<variable><desigilname>, $<trait>);
     }
@@ -1571,8 +1590,10 @@ class Perl6::Actions is HLL::Actions {
             else {
                 # Install.
                 if $outer.symbol($name) {
-                    $/.CURSOR.panic("Illegal redeclaration of routine '" ~
-                        ~$<deflongname>[0].ast ~ "'");
+                    $*W.throw($/, ['X', 'Redeclaration'],
+                            symbol => p6box_s(~$<deflongname>[0].ast),
+                            what   => p6box_s('routine'),
+                    );
                 }
                 if $*SCOPE eq '' || $*SCOPE eq 'my' {
                     $*W.install_lexical_symbol($outer, $name, $code, :clone(1));
@@ -2227,10 +2248,10 @@ class Perl6::Actions is HLL::Actions {
         my $quant := $<quant>;
         if $<default_value> {
             if $quant eq '*' {
-                $/.CURSOR.panic("Cannot put default on slurpy parameter");
+                $*W.throw($/, ['X', 'Parameter', 'Default'], how => p6box_s('slurpy'));
             }
             if $quant eq '!' {
-                $/.CURSOR.panic("Cannot put default on required parameter");
+                $*W.throw($/, ['X', 'Parameter', 'Default'], how => p6box_s('required'));
             }
             my $val := $<default_value>[0].ast;
             if $val<has_compile_time_value> {
@@ -2308,7 +2329,7 @@ class Perl6::Actions is HLL::Actions {
                 if $<name> {
                     my $cur_pad := $*W.cur_lexpad();
                     if $cur_pad.symbol(~$/) {
-                        $/.CURSOR.panic("Redeclaration of symbol ", ~$/);
+                        $*W.throw($/, ['X', 'Redeclaration'], symbol => p6box_s(~$/));
                     }
                     if pir::exists(%*PARAM_INFO, 'nominal_type') {
                         $cur_pad[0].push(PAST::Var.new( :name(~$/), :scope('lexical_6model'),
@@ -2339,13 +2360,16 @@ class Perl6::Actions is HLL::Actions {
             }
             else {
                 if $twigil eq ':' {
-                    $/.CURSOR.panic("In signature parameter, placeholder variables like " ~
-                        ~$/ ~ " are illegal\n" ~
-                        "you probably meant a named parameter: ':" ~ $<sigil> ~ ~$<name>[0] ~ "'");
+                    $*W.throw($/, ['X', 'Parameter', 'Placeholder'],
+                        parameter => p6box_s(~$/),
+                        right     => p6box_s(':' ~ $<sigil> ~ ~$<name>[0]),
+                    );
                 }
                 else {
-                    $/.CURSOR.panic("In signature parameter, '" ~ ~$/ ~
-                        "', it is illegal to use '" ~ $twigil ~ "' twigil");
+                    $*W.throw($/, ['X', 'Parameter', 'Twigil'],
+                        parameter => p6box_s(~$/),
+                        twigil    => p6box_s($twigil),
+                    );
                 }
             }
         }
@@ -2380,7 +2404,7 @@ class Perl6::Actions is HLL::Actions {
             }
             else {
                 if pir::exists(%*PARAM_INFO, 'nominal_type') {
-                    $/.CURSOR.panic('Parameter may only have one prefix type constraint');
+                    $*W.throw($/, ['X', 'Parameter', 'TypeConstraint']);
                 }
                 my $type := $<typename>.ast;
                 if nqp::isconcrete($type) {
@@ -2424,7 +2448,7 @@ class Perl6::Actions is HLL::Actions {
         }
         elsif $<value> {
             if pir::exists(%*PARAM_INFO, 'nominal_type') {
-                $/.CURSOR.panic('Parameter may only have one prefix type constraint');
+                $*W.throw($/, ['X', 'Parameter', 'TypeConstraint']);
             }
             my $ast := $<value>.ast;
             unless $ast<has_compile_time_value> {
@@ -2484,7 +2508,9 @@ class Perl6::Actions is HLL::Actions {
             if $_<named_names> {
                 for $_<named_names> {
                     if %seen_names{$_} {
-                        $/.CURSOR.panic("Name '$_' used for more than one named parameter");
+                        $*W.throw($/, ['X', 'Signature', 'NameClash'],
+                            named => p6box_s($_)
+                        );
                     }
                     %seen_names{$_} := 1;
                 }
@@ -2528,7 +2554,7 @@ class Perl6::Actions is HLL::Actions {
                 $*REPR := compile_time_value_str($<circumfix>[0].ast[0], "is repr(...) trait", $/);
             }
             else {
-                $/.cursor.panic("is repr(...) trait needs a parameter");
+                $/.CURSOR.panic("is repr(...) trait needs a parameter");
             }
         }
         else
@@ -2655,16 +2681,19 @@ class Perl6::Actions is HLL::Actions {
             if @parts {
                 my $methpkg := $*W.find_symbol(@parts);
                 unless $methpkg.HOW.is_trusted($methpkg, $*PACKAGE) {
-                    $/.CURSOR.panic("Cannot call private method '$name' on package " ~
-                        $methpkg.HOW.name($methpkg) ~ " because it does not trust " ~
-                        $*PACKAGE.HOW.name($*PACKAGE));
+                    $*W.throw($/, ['X', 'Method', 'Private', 'Permission'],
+                        :method(         p6box_s($name)),
+                        :source-package( p6box_s($methpkg.HOW.name($methpkg))),
+                        :calling-package(p6box_s( $*PACKAGE.HOW.name($*PACKAGE))),
+                    );
                 }
                 $past[1].type($methpkg);
             }
             else {
                 unless pir::can($*PACKAGE.HOW, 'find_private_method') {
-                    $/.CURSOR.panic("Private method call to '$name' must be fully " ~
-                        "qualified with the package containing the method");
+                    $*W.throw($/, ['X', 'Method', 'Private', 'Qualified'],
+                        :method(p6box_s($name)),
+                    );
                 }
                 $past.unshift($*W.get_ref($*PACKAGE));
                 $past[0].type($*PACKAGE);
@@ -4010,7 +4039,9 @@ class Perl6::Actions is HLL::Actions {
         # Ensure we're not trying to put a placeholder in the mainline.
         my $block := $*W.cur_lexpad();
         if $block<IN_DECL> eq 'mainline' {
-            $/.CURSOR.panic("Cannot use placeholder parameter $full_name in the mainline");
+            $*W.throw($/, ['X', 'Placeholder', 'Mainline'],
+                placeholder => p6box_s($full_name),
+            );
         }
         
         # Obtain/create placeholder parameter list.
@@ -4063,7 +4094,10 @@ class Perl6::Actions is HLL::Actions {
         # Add variable declaration, and evaluate to a lookup of it.
         my %existing := $block.symbol($name);
         if +%existing && !%existing<placeholder_parameter> {
-            $/.CURSOR.panic("Redeclaration of symbol $full_name as a placeholder parameter");
+            $*W.throw($/, ['X', 'Redeclaration'],
+                symbol  => p6box_s(~$/),
+                postfix => p6box_s(' as a placeholder parameter'),
+            );
         }
         $block[0].push(PAST::Var.new( :name($name), :scope('lexical_6model'), :isdecl(1) ));
         $block.symbol($name, :scope('lexical_6model'), :placeholder_parameter(1));
